@@ -208,6 +208,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         s_currentlyFlashLoaning[token] = true;
         assetToken.transferUnderlyingTo(receiverAddress, amount);
         // slither-disable-next-line unused-return reentrancy-vulnerabilities-2
+        // @followup - do we need return value here?
         receiverAddress.functionCall(
             abi.encodeCall(
                 IFlashLoanReceiver.executeOperation,
@@ -228,6 +229,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         s_currentlyFlashLoaning[token] = false;
     }
 
+    // @audit-info - Not used internally, mark it as external
     function repay(IERC20 token, uint256 amount) public {
         if (!s_currentlyFlashLoaning[token]) {
             revert ThunderLoan__NotCurrentlyFlashLoaning();
@@ -266,6 +268,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         if (newFee > s_feePrecision) {
             revert ThunderLoan__BadNewFee();
         }
+        // @audit-low - should emit an event here
         s_flashLoanFee = newFee;
     }
 
@@ -273,10 +276,12 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         return address(s_tokenToAssetToken[token]) != address(0);
     }
 
+    // @audit-info - Not used internally, mark it as external
     function getAssetFromToken(IERC20 token) public view returns (AssetToken) {
         return s_tokenToAssetToken[token];
     }
 
+    // @audit-info - Not used internally, mark it as external
     function isCurrentlyFlashLoaning(IERC20 token) public view returns (bool) {
         return s_currentlyFlashLoaning[token];
     }
