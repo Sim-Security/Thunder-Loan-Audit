@@ -81,7 +81,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     error ThunderLoan__NotEnoughTokenBalance(uint256 startingBalance, uint256 amount);
     error ThunderLoan__CallerIsNotContract();
     error ThunderLoan__AlreadyAllowed();
-    error ThunderLoan__ExhangeRateCanOnlyIncrease();
+    error ThunderLoan__ExhangeRateCanOnlyIncrease(); // @audit-info Not called anywhere
     error ThunderLoan__NotCurrentlyFlashLoaning();
     error ThunderLoan__BadNewFee();
 
@@ -91,13 +91,14 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
-    mapping(IERC20 => AssetToken) public s_tokenToAssetToken;
+    mapping(IERC20 => AssetToken) public s_tokenToAssetToken; // e I think this maps the underlying token to its assetToken
 
     // The fee in WEI, it should have 18 decimals. Each flash loan takes a flat fee of the token price.
+    // @audit-info - should be a constant or immutable
     uint256 private s_feePrecision;
     uint256 private s_flashLoanFee; // 0.3% ETH fee
 
-    mapping(IERC20 token => bool currentlyFlashLoaning) private s_currentlyFlashLoaning;
+    mapping(IERC20 token => bool currentlyFlashLoaning) private s_currentlyFlashLoaning; // e probably a mapping that tells us if a token is in the middle of a flashLoan
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -137,22 +138,34 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     /*//////////////////////////////////////////////////////////////
                            EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+    // @audit-info - should rename the param to poolFactoryAddress to match the interface
+    // q what happens if we deploy the contract, and someone else initializes it?
+    // a - that would suck
+    // They could pick a different tswapAddress!!!
+    // @audit-low - initializers can be front run.
     function initialize(address tswapAddress) external initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
-        __Oracle_init(tswapAddress);
+        __Oracle_init(tswapAddress); // e using Tswap as some kind of oracle
         s_feePrecision = 1e18;
         s_flashLoanFee = 3e15; // 0.3% ETH fee
     }
 
+    // @audit-info - Where is the natspec?
+
     function deposit(IERC20 token, uint256 amount) external revertIfZero(amount) revertIfNotAllowedToken(token) {
-        AssetToken assetToken = s_tokenToAssetToken[token];
+        AssetToken assetToken = s_tokenToAssetToken[token]; // check setAllowedToken
         uint256 exchangeRate = assetToken.getExchangeRate();
         uint256 mintAmount = (amount * assetToken.EXCHANGE_RATE_PRECISION()) / exchangeRate;
         emit Deposit(msg.sender, token, amount);
         assetToken.mint(msg.sender, mintAmount);
+
+        // @audit follow up - this seems wrong
+        // q why are we calculating the fees of flash loans in the deposit?
         uint256 calculatedFee = getCalculatedFee(token, amount);
+        // q why are we updating the exchange rate here?
         assetToken.updateExchangeRate(calculatedFee);
+        // e when a liquidity provider deposits, the money sits in the assetToken contract
         token.safeTransferFrom(msg.sender, address(assetToken), amount);
     }
 
@@ -178,27 +191,33 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         assetToken.transferUnderlyingTo(msg.sender, amountUnderlying);
     }
 
+    // @audit-info - Where is the natspec?
     function flashloan(
-        address receiverAddress,
-        IERC20 token,
-        uint256 amount,
-        bytes calldata params
+        address receiverAddress, //e the address to get the flash loaned tokens
+        IERC20 token, // e the ERC20 to borrow
+        uint256 amount, // e the amount to borrow
+        bytes calldata params // e the parameters to call the receiverAddress with 
     )
         external
         revertIfZero(amount)
         revertIfNotAllowedToken(token)
     {
-        AssetToken assetToken = s_tokenToAssetToken[token];
+        AssetToken assetToken = s_tokenToAssetToken[token]; // e get the underlying tokens
+        // e probably what we are going to use to check if the flashloan has been repaid
         uint256 startingBalance = IERC20(token).balanceOf(address(assetToken));
 
         if (amount > startingBalance) {
             revert ThunderLoan__NotEnoughTokenBalance(startingBalance, amount);
         }
 
+        // make sure the receiverAddress is a smart contract
+        // q what if the receiverAddress is a contract that is not a flashloan receiver?
+        // q what if the receiverAddress is a contract that is a flashloan receiver but has a bug?
         if (receiverAddress.code.length == 0) {
             revert ThunderLoan__CallerIsNotContract();
         }
 
+        // e this is probably where we get the calculated fee for the flashloan
         uint256 fee = getCalculatedFee(token, amount);
         // slither-disable-next-line reentrancy-vulnerabilities-2 reentrancy-vulnerabilities-3
         assetToken.updateExchangeRate(fee);
@@ -230,6 +249,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     }
 
     // @audit-info - Not used internally, mark it as external
+    // checked once - Oct 16 2024
     function repay(IERC20 token, uint256 amount) public {
         if (!s_currentlyFlashLoaning[token]) {
             revert ThunderLoan__NotCurrentlyFlashLoaning();
@@ -243,6 +263,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
             if (address(s_tokenToAssetToken[token]) != address(0)) {
                 revert ThunderLoan__AlreadyAllowed();
             }
+            // q what if they dont have a name?
             string memory name = string.concat("ThunderLoan ", IERC20Metadata(address(token)).name());
             string memory symbol = string.concat("tl", IERC20Metadata(address(token)).symbol());
             AssetToken assetToken = new AssetToken(address(this), token, name, symbol);
@@ -251,18 +272,25 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
             return assetToken;
         } else {
             AssetToken assetToken = s_tokenToAssetToken[token];
-            delete s_tokenToAssetToken[token];
+            delete s_tokenToAssetToken[token]; // q does this work right? maybe doesnt set it to 0 address 
             emit AllowedTokenSet(token, assetToken, allowed);
             return assetToken;
         }
     }
 
+    // @audit-info - natspec?
+    // @param - amount - the amount being borrowed
+    //@param - token - the token being borrowed
     function getCalculatedFee(IERC20 token, uint256 amount) public view returns (uint256 fee) {
         //slither-disable-next-line divide-before-multiply
+        // e so this is why we need Tswap. 
+        // q is this correcty? what if the price is manipulated?
         uint256 valueOfBorrowedToken = (amount * getPriceInWeth(address(token))) / s_feePrecision;
         //slither-disable-next-line divide-before-multiply
         fee = (valueOfBorrowedToken * s_flashLoanFee) / s_feePrecision;
     }
+
+    // @audit-info - natspec?
 
     function updateFlashLoanFee(uint256 newFee) external onlyOwner {
         if (newFee > s_feePrecision) {
@@ -272,6 +300,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         s_flashLoanFee = newFee;
     }
 
+    // q is it ever unset poorly?
     function isAllowedToken(IERC20 token) public view returns (bool) {
         return address(s_tokenToAssetToken[token]) != address(0);
     }
@@ -294,5 +323,6 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         return s_feePrecision;
     }
 
+    // Good, this means only owner can upgrade the contract
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner { }
 }

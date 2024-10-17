@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.20;
 
+// @audit-info - unused import
+// it's bad practice to edit live code for tests/mocks. This should be removed and test should import it on its own
+// remove the import from MockFlashLoanReceiver.sol
 import { IThunderLoan } from "./IThunderLoan.sol";
 
 /**
