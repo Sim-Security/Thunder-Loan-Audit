@@ -25,7 +25,8 @@ contract AssetToken is ERC20 {
     // e assetToken == shares
     // exchange rate similar to compound protocol.
     // e compound
-    // q what does this rate do?
+    // qanswered what does this rate do?
+    // a - It is the rate between the underlying token and the asset token
     uint256 private s_exchangeRate;
     uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
     uint256 private constant STARTING_EXCHANGE_RATE = 1e18;
@@ -59,7 +60,8 @@ contract AssetToken is ERC20 {
         address thunderLoan,
         IERC20 underlying, // token being deposited for flashloans
         // are the ERC20s stored in AssetToken.sol instead of ThunderLoan.sol?
-        // q where are the tokens stored?
+        // qanswered where are the tokens stored?
+        // a The tokens are stored in the AssetToken contract
         string memory assetName,
         string memory assetSymbol
     )
@@ -85,9 +87,13 @@ contract AssetToken is ERC20 {
 
     function transferUnderlyingTo(address to, uint256 amount) external onlyThunderLoan {
         // q weird ERC20s??
-        // q what happens if USDC blacklists the thunderloan contract?
-        // q what happens if USDC blacklists the asset token contract?
+        // q what happens if USDC denylists the thunderloan contract?
+        // q what happens if USDC denylists the asset token contract?
         // @follow up - werid ERC20s with USDC
+        // @audit-medium - the protocol will be frozen, and that would suck
+        // in a competitive audit: these are not usually accepted as findings...
+        // if a user is denylisted, too bad
+        // if a user is denylisted, and it effects others, this is bad and is a finding in comp audits.
         i_underlying.safeTransfer(to, amount);
     }
 

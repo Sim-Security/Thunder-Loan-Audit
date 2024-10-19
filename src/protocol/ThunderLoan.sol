@@ -161,6 +161,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         assetToken.mint(msg.sender, mintAmount);
 
         // @audit follow up - this seems wrong
+        // @audit-high - this is wrong, the exchange rate should be updated after the flashloan, not in the deposit function. This locks people from withdrawing their funds
         // q why are we calculating the fees of flash loans in the deposit?
         uint256 calculatedFee = getCalculatedFee(token, amount);
         // q why are we updating the exchange rate here?
@@ -242,6 +243,8 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         );
 
         uint256 endingBalance = token.balanceOf(address(assetToken));
+        // e endingBalance >= startingBalance + fee
+        // token < token + fee(token)
         if (endingBalance < startingBalance + fee) {
             revert ThunderLoan__NotPaidBack(startingBalance + fee, endingBalance);
         }
@@ -250,6 +253,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
 
     // @audit-info - Not used internally, mark it as external
     // checked once - Oct 16 2024
+    // @audit-low you can't use repay to repay a flash loan inside another flash loan!
     function repay(IERC20 token, uint256 amount) public {
         if (!s_currentlyFlashLoaning[token]) {
             revert ThunderLoan__NotCurrentlyFlashLoaning();
@@ -285,6 +289,17 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         //slither-disable-next-line divide-before-multiply
         // e so this is why we need Tswap. 
         // q is this correcty? what if the price is manipulated?
+
+        // 1 USDC
+        // 0.1 WETH
+        // 1e18?? 
+
+        // 1 USDC = 0.1 WETH
+        // 1 USDC + 0.003 WETH
+        // 1 USDC + 0.003 USDC? That wrong
+        // @audit-high if the fee is going to be in the token, then the value should reflect that.
+        // IMPACT: Prices are wrong --> med/high
+        // LIKLIHOOD: Happens every time --> high
         uint256 valueOfBorrowedToken = (amount * getPriceInWeth(address(token))) / s_feePrecision;
         //slither-disable-next-line divide-before-multiply
         fee = (valueOfBorrowedToken * s_flashLoanFee) / s_feePrecision;
