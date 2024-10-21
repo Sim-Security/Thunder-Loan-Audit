@@ -125,6 +125,11 @@ Due to how Solidity storage works, after the upgrade, the `s_flashLoanFee` will 
 <summary> Proof of Code </summary>
 
 ```javascript
+import { ThunderLoanUpgraded } from "../../src/upgradedProtocol/ThunderLoanUpgraded.sol";
+.
+.
+.
+
     function testUpgradeBreaks() public {
         uint256 feeBeforeUpgrade = thunderLoan.getFee();
         vm.startPrank(thunderLoan.owner());
